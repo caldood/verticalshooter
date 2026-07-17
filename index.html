@@ -140,8 +140,8 @@
         <button class="play-btn" id="startBtn">▶ LAUNCH</button>
         <div class="hint">
           <b>Drag</b> to move on touch · <b>◀ ▶</b> keys on desktop · auto-fire on<br>
-          Short <b>bears, weavers &amp; bull-traps</b> · survive the <b>🐋 whale</b><br>
-          Grab <b>$ coins</b> · <b>🛰 drones</b> · <b>×2 bull runs</b> · <b>💥 bailouts</b><br>
+          Break <b>shields</b>, dodge <b>orbiters</b> &amp; survive the <b>🐋 whale</b><br>
+          Grab <b>🎯 homing</b>, <b>» pierce</b>, <b>🛰 drones</b>, <b>×2</b> &amp; <b>💥</b> across 5 sectors<br>
           Send your portfolio <b>to the moon</b> 🚀
         </div>
         <div class="best" id="bestStart"></div>
@@ -240,33 +240,63 @@ function initStars() {
     });
   }
 }
+// ---------- Sector palettes (background varies between stages) ----------
+const SECTORS = [
+  { name: "DEEP SPACE",     base: [6, 4, 23],  neb: [[70,190,150],[180,60,150],[50,120,210]], star: 212, chart: [60,230,150] },
+  { name: "BULL NEBULA",    base: [7, 20, 14], neb: [[60,220,120],[230,200,70],[90,255,170]], star: 150, chart: [90,255,150] },
+  { name: "BEAR TERRITORY", base: [24, 7, 11], neb: [[220,70,70],[150,40,90],[255,120,90]],   star: 8,   chart: [255,100,100] },
+  { name: "CRYPTO SECTOR",  base: [5, 11, 27], neb: [[60,200,255],[200,70,255],[90,255,240]], star: 196, chart: [90,220,255] },
+  { name: "GOLDEN VAULT",   base: [24, 17, 5], neb: [[255,205,70],[230,150,50],[255,235,130]],star: 44,  chart: [255,215,90] }
+];
+let sectorIdx = 0, palBlend = 1;
+let prevPal = SECTORS[0], tgtPal = SECTORS[0];
+function sectorForLevel(l) { return Math.floor((l - 1) / 2) % SECTORS.length; }
+function curPal() {
+  const t = palBlend;
+  const li = (a, b) => a.map((v, i) => v + (b[i] - v) * t);
+  return {
+    base: li(prevPal.base, tgtPal.base),
+    neb: prevPal.neb.map((c, i) => li(c, tgtPal.neb[i])),
+    star: prevPal.star + (tgtPal.star - prevPal.star) * t,
+    chart: li(prevPal.chart, tgtPal.chart)
+  };
+}
+function applySector(idx, announce) {
+  prevPal = { base: curPal().base, neb: curPal().neb, star: curPal().star, chart: curPal().chart };
+  tgtPal = SECTORS[idx]; palBlend = 0; sectorIdx = idx;
+  if (announce) bannerText("◆ " + tgtPal.name + " ◆", "rgb(" + tgtPal.chart.map(Math.round).join(",") + ")", 2.2);
+}
+function resetSector() { sectorIdx = 0; prevPal = SECTORS[0]; tgtPal = SECTORS[0]; palBlend = 1; }
+const rgb = a => "rgb(" + a[0].toFixed(0) + "," + a[1].toFixed(0) + "," + a[2].toFixed(0) + ")";
+const rgba = (a, al) => "rgba(" + a[0].toFixed(0) + "," + a[1].toFixed(0) + "," + a[2].toFixed(0) + "," + al + ")";
+
 let nebulaOffset = 0, chartPhase = 0;
 function drawBackground(dt) {
-  ctx.fillStyle = "#060417";
+  if (palBlend < 1) palBlend = Math.min(1, palBlend + dt / 1.6);
+  const P = curPal();
+
+  ctx.fillStyle = rgb(P.base);
   ctx.fillRect(0, 0, W, H);
 
-  // drifting translucent nebula blobs
+  // drifting translucent nebula blobs (sector-tinted)
   nebulaOffset += dt * 14;
-  const blobs = [
-    { x: 88,  base: -120, c: "rgba(70,190,150,0.12)", r: 200 },
-    { x: 322, base: 130,  c: "rgba(180,60,150,0.11)", r: 210 },
-    { x: 200, base: 430,  c: "rgba(50,120,210,0.12)", r: 240 }
-  ];
-  for (const b of blobs) {
-    let y = ((b.base + nebulaOffset) % (H + 500)) - 250;
-    const g = ctx.createRadialGradient(b.x, y, 10, b.x, y, b.r);
-    g.addColorStop(0, b.c); g.addColorStop(1, "rgba(0,0,0,0)");
+  const nx = [88, 322, 200], nb = [-120, 130, 430], nr = [200, 210, 240], na = [0.13, 0.12, 0.13];
+  for (let k = 0; k < 3; k++) {
+    let y = ((nb[k] + nebulaOffset) % (H + 500)) - 250;
+    const g = ctx.createRadialGradient(nx[k], y, 10, nx[k], y, nr[k]);
+    g.addColorStop(0, rgba(P.neb[k], na[k])); g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   }
 
-  // stars
+  // stars (colored ones adopt the sector's accent hue)
+  const shue = Math.round(P.star);
   for (const s of stars) {
     s.y += s.sp * dt; s.tw += dt * 4;
     if (s.y > H + 3) { s.y = -3; s.x = rand(0, W); }
     const tw = 0.55 + 0.45 * Math.sin(s.tw);
     ctx.fillStyle = s.hue === 210
-      ? "rgba(200,225,255," + tw.toFixed(3) + ")"
-      : "hsla(" + s.hue.toFixed(0) + ",90%,75%," + tw.toFixed(3) + ")";
+      ? "rgba(210,230,255," + tw.toFixed(3) + ")"
+      : "hsla(" + shue + ",90%,75%," + tw.toFixed(3) + ")";
     ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.fill();
   }
 
@@ -283,9 +313,9 @@ function drawBackground(dt) {
 
   // translucent rising "market chart" silhouette along the bottom
   chartPhase += dt * 22;
-  drawChartSilhouette();
+  drawChartSilhouette(P.chart);
 }
-function drawChartSilhouette() {
+function drawChartSilhouette(chart) {
   const baseY = H - 4;
   ctx.save();
   ctx.beginPath();
@@ -293,15 +323,14 @@ function drawChartSilhouette() {
   const step = 26;
   let idx = Math.floor(chartPhase / step);
   for (let x = -((chartPhase % step)); x <= W + step; x += step, idx++) {
-    // deterministic pseudo-random height per index → smooth rising jagged line
     const h = 26 + (Math.sin(idx * 1.3) * 0.5 + 0.5) * 46 + (Math.sin(idx * 0.37) * 0.5 + 0.5) * 40;
     ctx.lineTo(x, baseY - h);
   }
   ctx.lineTo(W + step, H);
   ctx.closePath();
   const g = ctx.createLinearGradient(0, H - 120, 0, H);
-  g.addColorStop(0, "rgba(60,230,150,0.10)");
-  g.addColorStop(1, "rgba(60,230,150,0.015)");
+  g.addColorStop(0, rgba(chart, 0.11));
+  g.addColorStop(1, rgba(chart, 0.02));
   ctx.fillStyle = g; ctx.fill();
   ctx.restore();
 }
@@ -348,7 +377,8 @@ let state = State.START;
 const player = {
   x: W / 2, y: H - 92, w: 42, h: 46,
   speed: 330, cooldown: 0, fireRate: 0.2,
-  lives: 4, invuln: 0, power: 1, thrust: 0, drones: []
+  lives: 4, invuln: 0, power: 1, thrust: 0, drones: [],
+  weapon: "blaster", weaponTime: 0
 };
 
 let bullets = [], enemyBullets = [], enemies = [], powerups = [], coins = [];
@@ -371,18 +401,31 @@ function resetGame() {
   score = 0; level = 1; levelKills = 0; killsForLevel = 12;
   waveTimer = 0.4; shake = 0;
   scoreMult = 1; multTime = 0; flash = 0;
+  player.weapon = "blaster"; player.weaponTime = 0;
   bossActive = false; lastBossLevel = -1; banner.time = 0;
+  resetSector();
 }
 function firePlayer() {
   Sound.shoot();
   const bx = player.x, by = player.y - 24;
-  const shots = [];
-  if (player.power >= 3) shots.push({ x: bx, dx: 0 }, { x: bx - 13, dx: -70 }, { x: bx + 13, dx: 70 });
-  else if (player.power === 2) shots.push({ x: bx - 8, dx: 0 }, { x: bx + 8, dx: 0 });
-  else shots.push({ x: bx, dx: 0 });
-  for (const s of shots) bullets.push({ x: s.x, y: by, vx: s.dx, vy: -600, r: 4, life: 2 });
+  if (player.weapon === "homing") {
+    // seeking missiles (count scales with leverage)
+    const n = player.power >= 3 ? 3 : player.power;
+    for (let k = 0; k < n; k++) {
+      const off = (k - (n - 1) / 2) * 12;
+      bullets.push({ x: bx + off, y: by, vx: rand(-50, 50), vy: -360, r: 4.5, life: 2.6, homing: true });
+    }
+  } else {
+    const pierce = player.weapon === "pierce";
+    const shots = [];
+    if (player.power >= 3) shots.push({ x: bx, dx: 0 }, { x: bx - 13, dx: -70 }, { x: bx + 13, dx: 70 });
+    else if (player.power === 2) shots.push({ x: bx - 8, dx: 0 }, { x: bx + 8, dx: 0 });
+    else shots.push({ x: bx, dx: 0 });
+    for (const s of shots) bullets.push({ x: s.x, y: by, vx: s.dx, vy: -600, r: pierce ? 5 : 4, life: 2, pierce });
+  }
   // drone allies fire straight up
-  for (const d of player.drones) bullets.push({ x: d.x, y: d.y - 8, vx: 0, vy: -560, r: 3.5, life: 2 });
+  const dp = player.weapon === "pierce";
+  for (const d of player.drones) bullets.push({ x: d.x, y: d.y - 8, vx: 0, vy: -560, r: 3.5, life: 2, pierce: dp });
 }
 
 // ---------- Player ship (redesigned, translucent, animated) ----------
@@ -533,6 +576,8 @@ function makeEnemy(type, x, y) {
   if (type === "weaver")   { base.hp = 2; base.r = 15; base.color = "#3dd7d0"; base.points = 220; base.fireCd = rand(1.0, 2.2); base.weaveAmp = rand(30, 60); base.weavePh = rand(0, TAU); }
   if (type === "splitter") { base.hp = 2; base.r = 17; base.color = "#8be04a"; base.points = 180; base.fireCd = rand(1.4, 2.8); }
   if (type === "splitling"){ base.hp = 1; base.r = 9;  base.color = "#b6ff6a"; base.points = 60;  base.fireCd = rand(1.2, 2.6); }
+  if (type === "shielder") { base.hp = 3; base.r = 17; base.color = "#6b8bff"; base.points = 260; base.fireCd = rand(1.2, 2.4); base.shield = 3; base.shieldMax = 3; base.shieldRegen = 0; }
+  if (type === "orbiter")  { base.hp = 3; base.r = 16; base.color = "#ff8be0"; base.points = 300; base.fireCd = rand(2.0, 3.2); }
   if (type === "boss")     { base.hp = 40 + level * 8; base.r = 46; base.color = "#c46bff"; base.points = 3000; base.fireCd = 1.2; base.bossPhase = 0; base.spin = 0; base.strafe = rand(0, TAU); }
   base.maxHp = base.hp;
   return base;
@@ -562,7 +607,9 @@ function spawnWave() {
   if (level >= 2) rowTypes.push(Math.random() < 0.5 ? "gunner" : "weaver");
   if (level >= 3) rowTypes.push(Math.random() < 0.5 ? "gunner" : "splitter");
   if (level >= 4 && Math.random() < 0.6) rowTypes.push("diver");
+  if (level >= 4) rowTypes.push(Math.random() < 0.5 ? "shielder" : "orbiter");
   if (level >= 5 && Math.random() < 0.5) rowTypes.push("weaver");
+  if (level >= 6 && Math.random() < 0.5) rowTypes.push("orbiter");
   const rows = rowTypes.length;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -590,6 +637,15 @@ function enemyFire(e) {
     if (Math.random() < 0.6) { enemyBullets.push({ x: e.x, y: e.y + e.r, vx: 0, vy: 195, r: 4, color: e.color }); Sound.enemyShoot(); }
   } else if (e.type === "gunner") {
     aimedBullet(e, 235); Sound.enemyShoot();
+  } else if (e.type === "shielder") {
+    aimedBullet(e, 205); Sound.enemyShoot();
+  } else if (e.type === "orbiter") {
+    // radial ring burst
+    for (let k = 0; k < 8; k++) {
+      const a = k / 8 * TAU + e.t;
+      enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 145, vy: Math.sin(a) * 145 + 45, r: 4.5, color: e.color });
+    }
+    Sound.enemyShoot();
   } else if (e.type === "weaver") {
     // twin angled shots
     enemyBullets.push({ x: e.x, y: e.y + e.r, vx: -70, vy: 200, r: 4, color: e.color });
@@ -658,6 +714,10 @@ function updateEnemies(dt) {
       e.y = e.homeY + Math.sin(e.strafe * 1.7) * 10;
       bossFire(e, dt);
     } else {
+      if (e.type === "shielder" && e.shield < e.shieldMax) {
+        e.shieldRegen -= dt;
+        if (e.shieldRegen <= 0) { e.shield = e.shieldMax; } // full recharge after being left alone
+      }
       let weave = 0;
       if (e.type === "weaver") weave = Math.sin(e.t * 2.4 + e.weavePh) * e.weaveAmp;
       const targetX = e.homeX + sway + weave, targetY = e.homeY + bob;
@@ -765,6 +825,39 @@ function drawEnemy(e) {
     ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.fill();
     ctx.fillStyle = "rgba(15,60,5,0.9)";
     ctx.beginPath(); ctx.arc(-3, -1, 1.6, 0, TAU); ctx.arc(3, -1, 1.6, 0, TAU); ctx.fill();
+  } else if (e.type === "shielder") {
+    // "HODLER" — hexa-core with a regenerating shield bubble
+    ctx.fillStyle = e.color;
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = k / 6 * TAU + Math.PI / 6;
+      const px = Math.cos(a) * 13, py = Math.sin(a) * 13;
+      k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(230,240,255,0.95)";
+    ctx.font = "bold 11px 'Trebuchet MS'"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("♦", 0, 1);
+    if (e.shield > 0) {
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(150,190,255," + (0.35 + 0.18 * e.shield).toFixed(2) + ")";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, 22, -0.15 * TAU, 0.65 * TAU); ctx.stroke(); // front-facing arc
+    }
+  } else if (e.type === "orbiter") {
+    // "MARKET MAKER" — spinning gear that fires ring bursts
+    ctx.rotate(e.t * 1.5);
+    ctx.fillStyle = e.color;
+    for (let k = 0; k < 8; k++) {
+      const a = k / 8 * TAU;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 14, Math.sin(a) * 14, 3.2, 0, TAU); ctx.fill();
+    }
+    const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 12);
+    g.addColorStop(0, "#ffe0f4"); g.addColorStop(1, e.color);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, 11, 0, TAU); ctx.fill();
+    ctx.fillStyle = "rgba(80,10,55,0.9)";
+    ctx.beginPath(); ctx.arc(0, 0, 4, 0, TAU); ctx.fill();
   } else if (e.type === "boss") {
     // WHALE — big menacing hull with gold trim + glowing eyes
     ctx.shadowBlur = 26;
@@ -842,8 +935,8 @@ function drawCoins() {
 
 // ---------- Power-ups ----------
 const POWER_TABLE = [
-  ["power", 0.20], ["rapid", 0.15], ["shield", 0.13], ["multi", 0.14],
-  ["drone", 0.12], ["bomb", 0.12], ["heart", 0.14]
+  ["power", 0.15], ["rapid", 0.12], ["shield", 0.11], ["multi", 0.12],
+  ["drone", 0.10], ["bomb", 0.10], ["heart", 0.12], ["homing", 0.09], ["pierce", 0.09]
 ];
 function spawnPowerup(x, y) {
   let roll = Math.random(), acc = 0, kind = "power";
@@ -857,6 +950,8 @@ function powerupStyle(kind) {
   if (kind === "multi")  return { col: "#ffb14a", label: "×2" };
   if (kind === "drone")  return { col: "#b18bff", label: "🛰" };
   if (kind === "bomb")   return { col: "#ff5b5b", label: "💥" };
+  if (kind === "homing") return { col: "#ff8b3d", label: "🎯" };
+  if (kind === "pierce") return { col: "#5ad2ff", label: "»" };
   return { col: "#ffd24a", label: "📈" };
 }
 function drawPowerup(p) {
@@ -910,6 +1005,8 @@ function applyPowerup(p) {
   else if (p.kind === "multi")  { scoreMult = 2; multTime = 12; bannerText("BULL RUN ×2 📈", "#ffb14a", 1.6); }
   else if (p.kind === "drone")  { addDrone() ? floatText(p.x, p.y, "ALLY DRONE", "#b18bff") : floatText(p.x, p.y, "+" + money(300), "#b18bff"); if (player.drones.length >= 2) addScore(300); }
   else if (p.kind === "bomb")   { bannerText("BAILOUT! 💥", "#ff5b5b", 1.4); detonateBomb(); }
+  else if (p.kind === "homing") { player.weapon = "homing"; player.weaponTime = 12; floatText(p.x, p.y, "HOMING", "#ff8b3d"); bannerText("HOMING MISSILES 🎯", "#ff8b3d", 1.5); }
+  else if (p.kind === "pierce") { player.weapon = "pierce"; player.weaponTime = 12; floatText(p.x, p.y, "PIERCE", "#5ad2ff"); bannerText("BLUE-CHIP PIERCE »", "#5ad2ff", 1.5); }
 }
 
 // ---------- Banner (centered callouts) ----------
@@ -951,8 +1048,27 @@ function drawFloats() {
 function updateBullets(dt) {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
+    if (b.homing) {
+      // steer toward nearest enemy ahead
+      let best = null, bd = 1e9;
+      for (const e of enemies) {
+        if (e.y > b.y + 30) continue;
+        const d = dist2(b.x, b.y, e.x, e.y);
+        if (d < bd) { bd = d; best = e; }
+      }
+      if (best) {
+        const want = Math.atan2(best.y - b.y, best.x - b.x);
+        const cur = Math.atan2(b.vy, b.vx);
+        let da = want - cur;
+        while (da > Math.PI) da -= TAU;
+        while (da < -Math.PI) da += TAU;
+        const na = cur + clamp(da, -4 * dt, 4 * dt);
+        const sp = Math.hypot(b.vx, b.vy);
+        b.vx = Math.cos(na) * sp; b.vy = Math.sin(na) * sp;
+      }
+    }
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
-    if (b.y < -10 || b.life <= 0 || b.x < -10 || b.x > W + 10) bullets.splice(i, 1);
+    if (b.life <= 0 || b.y < -14 || b.y > H + 14 || b.x < -14 || b.x > W + 14) bullets.splice(i, 1);
   }
   for (let i = enemyBullets.length - 1; i >= 0; i--) {
     const b = enemyBullets[i];
@@ -961,17 +1077,30 @@ function updateBullets(dt) {
   }
 }
 function drawBullets() {
-  // player = green bullish bolts (additive glow)
+  // player shots (additive glow), styled per weapon
   ctx.globalCompositeOperation = "lighter";
   for (const b of bullets) {
-    ctx.fillStyle = "#c8ffdf";
-    ctx.shadowColor = "#3dff9a"; ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.moveTo(b.x, b.y - 10);
-    ctx.lineTo(b.x + 3, b.y + 5);
-    ctx.lineTo(b.x, b.y + 2);
-    ctx.lineTo(b.x - 3, b.y + 5);
-    ctx.closePath(); ctx.fill();
+    if (b.homing) {
+      // orange seeking missile
+      ctx.fillStyle = "#ffd0a0"; ctx.shadowColor = "#ff8b3d"; ctx.shadowBlur = 12;
+      const ang = Math.atan2(b.vy, b.vx) + Math.PI / 2;
+      ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(ang);
+      ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(4, 6); ctx.lineTo(-4, 6); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else if (b.pierce) {
+      // cyan piercing lance
+      ctx.fillStyle = "#d6f6ff"; ctx.shadowColor = "#5ad2ff"; ctx.shadowBlur = 14;
+      ctx.fillRect(b.x - 2, b.y - 12, 4, 20);
+    } else {
+      // green bullish bolt
+      ctx.fillStyle = "#c8ffdf"; ctx.shadowColor = "#3dff9a"; ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y - 10);
+      ctx.lineTo(b.x + 3, b.y + 5);
+      ctx.lineTo(b.x, b.y + 2);
+      ctx.lineTo(b.x - 3, b.y + 5);
+      ctx.closePath(); ctx.fill();
+    }
   }
   ctx.globalCompositeOperation = "source-over";
   ctx.shadowBlur = 0;
@@ -999,8 +1128,12 @@ function handleCollisions() {
     for (let j = bullets.length - 1; j >= 0; j--) {
       const b = bullets[j];
       if (dist2(e.x, e.y, b.x, b.y) < (e.r + b.r) * (e.r + b.r)) {
-        bullets.splice(j, 1); e.hp -= 1;
+        if (b.pierce) { if (b.lastHit === e) continue; b.lastHit = e; }
+        else bullets.splice(j, 1);
         spawnSpark(b.x, b.y, "#c8ffdf"); Sound.hit();
+        // shielder: front shield absorbs the hit and regenerates when left alone
+        if (e.type === "shielder" && e.shield > 0) { e.shield--; e.shieldRegen = 3.5; spawnSpark(b.x, b.y, "#9fc0ff"); break; }
+        e.hp -= 1;
         if (e.hp <= 0) {
           addScore(e.points); levelKills++;
           floatText(e.x, e.y - 6, "+" + money(Math.round(e.points * scoreMult)), "#8affc4");
@@ -1025,8 +1158,9 @@ function handleCollisions() {
             spawnExplosion(e.x, e.y, e.color, big ? 36 : 18, big ? 1.7 : 1);
             big ? Sound.bigExplode() : Sound.explode();
             shake = Math.min(shake + (big ? 11 : 4), 16);
-            spawnCoins(e.x, e.y, big ? randInt(4, 6) : (e.type === "gunner" || e.type === "weaver" ? randInt(1, 3) : (Math.random() < 0.6 ? 1 : 0)));
-            const dropChance = e.type === "tank" ? 1 : (e.type === "gunner" || e.type === "weaver") ? 0.22 : 0.1;
+            const elite = e.type === "gunner" || e.type === "weaver" || e.type === "shielder" || e.type === "orbiter";
+            spawnCoins(e.x, e.y, big ? randInt(4, 6) : (elite ? randInt(1, 3) : (Math.random() < 0.6 ? 1 : 0)));
+            const dropChance = e.type === "tank" ? 1 : elite ? 0.24 : 0.1;
             if (Math.random() < dropChance) spawnPowerup(e.x, e.y);
           }
           enemies.splice(i, 1);
@@ -1112,6 +1246,8 @@ function drawHUD() {
   ctx.textAlign = "left"; ctx.font = "bold 10px 'Trebuchet MS', sans-serif";
   let bx = 20;
   function chip(txt, col) { ctx.fillStyle = col; ctx.fillText(txt, bx, 46); bx += ctx.measureText(txt).width + 10; }
+  if (player.weapon === "homing") chip("🎯 " + Math.ceil(player.weaponTime) + "s", "#ff8b3d");
+  if (player.weapon === "pierce") chip("PIERCE " + Math.ceil(player.weaponTime) + "s", "#5ad2ff");
   if (player.power > 1) chip("LVG×" + player.power, "#ffd24a");
   if (player.fireRate < 0.2) chip("HFT", "#5bff9f");
   if (multTime > 0) chip("BULL×2 " + Math.ceil(multTime) + "s", "#ffb14a");
@@ -1248,9 +1384,13 @@ function update(dt) {
     if (p.y > H + 20) powerups.splice(i, 1);
   }
 
+  if (player.weaponTime > 0) { player.weaponTime -= dt; if (player.weaponTime <= 0) { player.weapon = "blaster"; player.weaponTime = 0; } }
+
   handleCollisions();
   bossActive = enemies.some(e => e.type === "boss");
   checkLevelUp();
+  const desiredSector = sectorForLevel(level);
+  if (desiredSector !== sectorIdx) applySector(desiredSector, true);
   if (levelBanner > 0) levelBanner -= dt;
 
   if (enemies.length === 0) {
