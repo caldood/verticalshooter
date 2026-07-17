@@ -37,37 +37,39 @@
   /* ---- Translucent glass on-screen controls ---- */
   #controls { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
   .btn {
-    position: absolute; bottom: 20px;
-    width: 76px; height: 76px;
+    position: absolute; bottom: 12px;
+    width: 50px; height: 50px;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-size: 30px; font-weight: bold;
-    color: rgba(200,232,255,0.92);
-    background: linear-gradient(155deg, rgba(120,180,255,0.16), rgba(40,60,130,0.10));
-    border: 1px solid rgba(150,200,255,0.30);
-    box-shadow: 0 4px 22px rgba(40,80,200,0.28), inset 0 1px 12px rgba(160,200,255,0.20);
-    backdrop-filter: blur(8px) saturate(1.2);
-    -webkit-backdrop-filter: blur(8px) saturate(1.2);
+    font-size: 19px; font-weight: bold;
+    color: rgba(200,232,255,0.85);
+    background: linear-gradient(155deg, rgba(120,180,255,0.12), rgba(40,60,130,0.06));
+    border: 1px solid rgba(150,200,255,0.24);
+    box-shadow: 0 3px 16px rgba(40,80,200,0.20), inset 0 1px 10px rgba(160,200,255,0.15);
+    backdrop-filter: blur(6px) saturate(1.15);
+    -webkit-backdrop-filter: blur(6px) saturate(1.15);
     pointer-events: auto;
-    transition: transform .07s, background .12s, box-shadow .12s;
+    opacity: 0.8;
+    transition: transform .07s, background .12s, box-shadow .12s, opacity .12s;
   }
   .btn:active {
-    transform: scale(0.9);
-    background: linear-gradient(155deg, rgba(150,205,255,0.34), rgba(60,90,180,0.22));
-    box-shadow: 0 0 26px rgba(90,160,255,0.5), inset 0 0 16px rgba(170,210,255,0.35);
+    transform: scale(0.88);
+    opacity: 1;
+    background: linear-gradient(155deg, rgba(150,205,255,0.32), rgba(60,90,180,0.20));
+    box-shadow: 0 0 22px rgba(90,160,255,0.45), inset 0 0 14px rgba(170,210,255,0.32);
   }
-  #btnLeft  { left: 18px; }
-  #btnRight { left: 104px; }
+  #btnLeft  { left: 12px; }
+  #btnRight { left: 68px; }
   #btnFire  {
-    right: 18px; width: 92px; height: 92px; bottom: 16px; font-size: 22px; letter-spacing: 1px;
-    color: rgba(190,255,220,0.95);
-    background: linear-gradient(155deg, rgba(60,230,150,0.20), rgba(20,120,80,0.12));
-    border-color: rgba(110,255,190,0.45);
-    box-shadow: 0 4px 24px rgba(30,200,120,0.30), inset 0 1px 12px rgba(140,255,200,0.28);
+    right: 12px; width: 58px; height: 58px; bottom: 10px; font-size: 14px; letter-spacing: 0.5px;
+    color: rgba(190,255,220,0.9);
+    background: linear-gradient(155deg, rgba(60,230,150,0.16), rgba(20,120,80,0.08));
+    border-color: rgba(110,255,190,0.38);
+    box-shadow: 0 3px 18px rgba(30,200,120,0.22), inset 0 1px 10px rgba(140,255,200,0.22);
   }
   #btnFire:active {
-    background: linear-gradient(155deg, rgba(90,255,180,0.40), rgba(30,160,100,0.26));
-    box-shadow: 0 0 30px rgba(60,240,150,0.55), inset 0 0 16px rgba(160,255,210,0.4);
+    background: linear-gradient(155deg, rgba(90,255,180,0.38), rgba(30,160,100,0.24));
+    box-shadow: 0 0 26px rgba(60,240,150,0.5), inset 0 0 14px rgba(160,255,210,0.38);
   }
 
   /* ---- Translucent glass overlays ---- */
@@ -386,9 +388,11 @@ let score = 0, level = 1, best = 0;
 try { best = parseInt(localStorage.getItem("moonshot_best") || "0", 10) || 0; } catch (e) {}
 
 let waveTimer = 0, levelKills = 0, killsForLevel = 12, shake = 0;
+let waveStaleTimer = 0, lastEnemyCount = 0;
 let scoreMult = 1, multTime = 0, flash = 0;
 
 function addScore(n) { score += Math.round(n * scoreMult); }
+const isBoss = e => e.type === "boss" || e.type === "boss2";
 const keys = { left: false, right: false, fire: false };
 const touchMove = { active: false, x: 0 };
 
@@ -399,7 +403,7 @@ function resetGame() {
   player.cooldown = 0; player.fireRate = 0.2; player.drones = [];
   bullets = []; enemyBullets = []; enemies = []; powerups = []; coins = []; particles.length = 0;
   score = 0; level = 1; levelKills = 0; killsForLevel = 12;
-  waveTimer = 0.4; shake = 0;
+  waveTimer = 0.4; shake = 0; waveStaleTimer = 0; lastEnemyCount = 0;
   scoreMult = 1; multTime = 0; flash = 0;
   player.weapon = "blaster"; player.weaponTime = 0;
   bossActive = false; lastBossLevel = -1; banner.time = 0;
@@ -428,104 +432,110 @@ function firePlayer() {
   for (const d of player.drones) bullets.push({ x: d.x, y: d.y - 8, vx: 0, vy: -560, r: 3.5, life: 2, pierce: dp });
 }
 
-// ---------- Player ship (redesigned, translucent, animated) ----------
+// ---------- Player ship (sleek weapon-tinted interceptor) ----------
 function drawPlayer(t) {
   ctx.save();
   ctx.translate(player.x, player.y);
-  const bank = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-  ctx.rotate(bank * 0.16);
+  let bank = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  if (touchMove.active) bank = clamp((touchMove.x - player.x) / 45, -1, 1);
+  ctx.rotate(bank * 0.18);
 
-  // ---- twin engine thrust (translucent, flickering) ----
-  ctx.globalCompositeOperation = "lighter";
-  const flick = 0.6 + 0.4 * Math.sin(t * 40);
-  for (const ex of [-8, 8]) {
-    const flame = 12 + flick * 8 + player.thrust * 8;
-    const fg = ctx.createLinearGradient(ex, 12, ex, 12 + flame + 16);
-    fg.addColorStop(0, "rgba(180,255,235,0.85)");
-    fg.addColorStop(0.45, "rgba(70,220,255,0.5)");
-    fg.addColorStop(1, "rgba(70,150,255,0)");
-    ctx.fillStyle = fg;
-    ctx.beginPath();
-    ctx.moveTo(ex - 4.5, 12); ctx.lineTo(ex + 4.5, 12);
-    ctx.lineTo(ex, 12 + flame + 14); ctx.closePath(); ctx.fill();
-  }
-  ctx.globalCompositeOperation = "source-over";
+  // weapon-tinted accent (green blaster / orange homing / cyan pierce)
+  let accent = [90, 255, 180];
+  if (player.weapon === "homing") accent = [255, 150, 80];
+  else if (player.weapon === "pierce") accent = [110, 210, 255];
+  const acc = a => "rgba(" + accent[0] + "," + accent[1] + "," + accent[2] + "," + a + ")";
+  const accS = "rgb(" + accent.join(",") + ")";
 
   const blink = player.invuln > 0 && Math.floor(player.invuln * 12) % 2 === 0;
   ctx.globalAlpha = blink ? 0.4 : 1;
 
-  // ---- outer wings (translucent glass) ----
-  ctx.save();
-  ctx.shadowColor = "#3ec6ff"; ctx.shadowBlur = 14;
-  const wingGrad = ctx.createLinearGradient(-24, 0, 24, 0);
-  wingGrad.addColorStop(0, "rgba(60,150,255,0.30)");
-  wingGrad.addColorStop(0.5, "rgba(150,225,255,0.55)");
-  wingGrad.addColorStop(1, "rgba(60,150,255,0.30)");
-  ctx.fillStyle = wingGrad;
-  ctx.beginPath();
-  ctx.moveTo(-8, -2); ctx.lineTo(-24, 12); ctx.lineTo(-19, 16); ctx.lineTo(-7, 10); ctx.closePath();
-  ctx.moveTo(8, -2); ctx.lineTo(24, 12); ctx.lineTo(19, 16); ctx.lineTo(7, 10); ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+  // ---- twin afterburners: accent plume + white-hot core + glow ring ----
+  ctx.globalCompositeOperation = "lighter";
+  const flick = 0.6 + 0.4 * Math.sin(t * 40);
+  const flame = 14 + flick * 9 + player.thrust * 10;
+  for (const ex of [-7, 7]) {
+    let fg = ctx.createLinearGradient(ex, 14, ex, 16 + flame + 14);
+    fg.addColorStop(0, acc(0.85)); fg.addColorStop(0.5, acc(0.35)); fg.addColorStop(1, acc(0));
+    ctx.fillStyle = fg;
+    ctx.beginPath(); ctx.moveTo(ex - 5, 15); ctx.lineTo(ex + 5, 15); ctx.lineTo(ex, 16 + flame + 12); ctx.closePath(); ctx.fill();
+    fg = ctx.createLinearGradient(ex, 14, ex, 15 + flame * 0.7);
+    fg.addColorStop(0, "rgba(255,255,255,0.9)"); fg.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = fg;
+    ctx.beginPath(); ctx.moveTo(ex - 2.4, 15); ctx.lineTo(ex + 2.4, 15); ctx.lineTo(ex, 15 + flame * 0.7); ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = acc(0.22 + 0.15 * flick);
+  ctx.beginPath(); ctx.ellipse(0, 15, 12, 3.5, 0, 0, TAU); ctx.fill();
+  ctx.globalCompositeOperation = "source-over";
 
-  // ---- main hull (metallic blue with gradient) ----
-  ctx.shadowColor = "#4aa8ff"; ctx.shadowBlur = 18;
-  const bodyGrad = ctx.createLinearGradient(0, -26, 0, 20);
-  bodyGrad.addColorStop(0, "#f2fbff");
-  bodyGrad.addColorStop(0.35, "#69bcff");
-  bodyGrad.addColorStop(0.75, "#2f6fe0");
-  bodyGrad.addColorStop(1, "#123a9e");
+  // ---- swept carbon wings with neon edge trim ----
+  ctx.shadowColor = accS; ctx.shadowBlur = 10;
+  ctx.fillStyle = "rgba(18,32,66,0.95)";
+  ctx.beginPath(); ctx.moveTo(-6, -6); ctx.lineTo(-26, 14); ctx.lineTo(-20, 18); ctx.lineTo(-5, 12); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(6, -6); ctx.lineTo(26, 14); ctx.lineTo(20, 18); ctx.lineTo(5, 12); ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = acc(0.9); ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(-6, -6); ctx.lineTo(-26, 14); ctx.moveTo(6, -6); ctx.lineTo(26, 14); ctx.stroke();
+
+  // ---- sleek metallic fuselage with a sharp nose ----
+  ctx.shadowColor = "#5ab8ff"; ctx.shadowBlur = 16;
+  const bodyGrad = ctx.createLinearGradient(-8, 0, 8, 0);
+  bodyGrad.addColorStop(0, "#20304e");
+  bodyGrad.addColorStop(0.42, "#8fd0ff");
+  bodyGrad.addColorStop(0.5, "#f2fbff");
+  bodyGrad.addColorStop(0.58, "#8fd0ff");
+  bodyGrad.addColorStop(1, "#20304e");
   ctx.fillStyle = bodyGrad;
   ctx.beginPath();
-  ctx.moveTo(0, -27);
-  ctx.quadraticCurveTo(9, -16, 11, -2);
-  ctx.lineTo(9, 12);
-  ctx.lineTo(4, 17); ctx.lineTo(-4, 17);
-  ctx.lineTo(-9, 12);
-  ctx.lineTo(-11, -2);
-  ctx.quadraticCurveTo(-9, -16, 0, -27);
+  ctx.moveTo(0, -30);
+  ctx.quadraticCurveTo(7, -14, 8, 2);
+  ctx.lineTo(6, 14);
+  ctx.lineTo(3, 18); ctx.lineTo(-3, 18);
+  ctx.lineTo(-6, 14);
+  ctx.lineTo(-8, 2);
+  ctx.quadraticCurveTo(-7, -14, 0, -30);
   ctx.closePath(); ctx.fill();
   ctx.shadowBlur = 0;
 
-  // ---- hull side panels (subtle translucent shading) ----
-  ctx.fillStyle = "rgba(10,30,80,0.35)";
-  ctx.beginPath();
-  ctx.moveTo(0, -20); ctx.lineTo(9, 10); ctx.lineTo(4, 16); ctx.lineTo(0, 14); ctx.closePath();
-  ctx.fill();
+  // moving energy pulse along the hull
+  const lp = (t * 0.6) % 1;
+  ctx.strokeStyle = acc(0.7); ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(-4.5, -22 + lp * 40); ctx.lineTo(4.5, -22 + lp * 40); ctx.stroke();
 
-  // ---- glowing energy core with $ emblem (pulsing, translucent) ----
+  // ---- cockpit canopy ----
+  const cg = ctx.createLinearGradient(0, -20, 0, -4);
+  cg.addColorStop(0, "rgba(230,252,255,0.98)");
+  cg.addColorStop(1, "rgba(40,120,220,0.6)");
+  ctx.fillStyle = cg;
+  ctx.beginPath(); ctx.ellipse(0, -12, 3.6, 7, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  ctx.beginPath(); ctx.ellipse(-1, -14, 1, 2.4, 0, 0, TAU); ctx.fill();
+
+  // ---- crystalline energy core (finance $ heart), weapon-tinted ----
   const pulse = 0.6 + 0.4 * Math.sin(t * 6);
   ctx.globalCompositeOperation = "lighter";
-  const coreGrad = ctx.createRadialGradient(0, 2, 0, 0, 2, 10);
-  coreGrad.addColorStop(0, "rgba(150,255,210," + (0.85 * pulse).toFixed(3) + ")");
-  coreGrad.addColorStop(0.6, "rgba(60,220,150," + (0.4 * pulse).toFixed(3) + ")");
-  coreGrad.addColorStop(1, "rgba(60,220,150,0)");
+  const coreGrad = ctx.createRadialGradient(0, 3, 0, 0, 3, 11);
+  coreGrad.addColorStop(0, acc(0.9 * pulse));
+  coreGrad.addColorStop(0.55, acc(0.4 * pulse));
+  coreGrad.addColorStop(1, acc(0));
   ctx.fillStyle = coreGrad;
-  ctx.beginPath(); ctx.arc(0, 2, 10, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 3, 11, 0, TAU); ctx.fill();
+  ctx.fillStyle = acc(0.5 + 0.3 * pulse);
+  ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(5, 3); ctx.lineTo(0, 9); ctx.lineTo(-5, 3); ctx.closePath(); ctx.fill();
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "rgba(3,40,26,0.9)";
-  ctx.font = "bold 11px 'Trebuchet MS', sans-serif";
+  ctx.fillStyle = "rgba(6,20,14,0.92)";
+  ctx.font = "bold 10px 'Trebuchet MS', sans-serif";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("$", 0, 3);
+  ctx.fillText("$", 0, 3.5);
 
-  // ---- glass cockpit canopy (translucent) ----
-  const cg = ctx.createLinearGradient(0, -18, 0, -2);
-  cg.addColorStop(0, "rgba(225,252,255,0.95)");
-  cg.addColorStop(1, "rgba(60,150,255,0.55)");
-  ctx.fillStyle = cg;
-  ctx.beginPath(); ctx.ellipse(0, -10, 4, 7, 0, 0, TAU); ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.beginPath(); ctx.ellipse(-1, -12, 1.2, 2.6, 0, 0, TAU); ctx.fill();
-
-  // ---- nav lights (blink; port red / starboard green — a finance wink) ----
+  // ---- wingtip nav lights (port red / starboard green) ----
   const navOn = Math.floor(t * 3) % 2 === 0;
   ctx.globalCompositeOperation = "lighter";
-  ctx.fillStyle = navOn ? "rgba(255,80,110,0.95)" : "rgba(255,80,110,0.3)";
-  ctx.shadowColor = "#ff506e"; ctx.shadowBlur = navOn ? 10 : 0;
-  ctx.beginPath(); ctx.arc(-19, 13, 2, 0, TAU); ctx.fill();
-  ctx.fillStyle = navOn ? "rgba(80,255,150,0.95)" : "rgba(80,255,150,0.3)";
-  ctx.shadowColor = "#50ff96";
-  ctx.beginPath(); ctx.arc(19, 13, 2, 0, TAU); ctx.fill();
+  ctx.shadowBlur = navOn ? 10 : 0;
+  ctx.fillStyle = navOn ? "rgba(255,80,110,0.95)" : "rgba(255,80,110,0.3)"; ctx.shadowColor = "#ff506e";
+  ctx.beginPath(); ctx.arc(-25, 14, 2.1, 0, TAU); ctx.fill();
+  ctx.fillStyle = navOn ? "rgba(80,255,150,0.95)" : "rgba(80,255,150,0.3)"; ctx.shadowColor = "#50ff96";
+  ctx.beginPath(); ctx.arc(25, 14, 2.1, 0, TAU); ctx.fill();
   ctx.shadowBlur = 0;
   ctx.globalCompositeOperation = "source-over";
 
@@ -579,25 +589,27 @@ function makeEnemy(type, x, y) {
   if (type === "shielder") { base.hp = 3; base.r = 17; base.color = "#6b8bff"; base.points = 260; base.fireCd = rand(1.2, 2.4); base.shield = 3; base.shieldMax = 3; base.shieldRegen = 0; }
   if (type === "orbiter")  { base.hp = 3; base.r = 16; base.color = "#ff8be0"; base.points = 300; base.fireCd = rand(2.0, 3.2); }
   if (type === "boss")     { base.hp = 40 + level * 8; base.r = 46; base.color = "#c46bff"; base.points = 3000; base.fireCd = 1.2; base.bossPhase = 0; base.spin = 0; base.strafe = rand(0, TAU); }
+  if (type === "boss2")    { base.hp = 44 + level * 8; base.r = 44; base.color = "#6f86c8"; base.points = 3500; base.fireCd = 1.2; base.bossPhase = 0; base.spin = 0; base.strafe = rand(0, TAU); }
   base.maxHp = base.hp;
   return base;
 }
 let formationTime = 0, lastBossLevel = -1, bossActive = false;
 function spawnWave() {
-  // Boss encounter every 3rd tier
+  // Boss encounter every 3rd tier — alternate the two boss types
   if (level >= 3 && level % 3 === 0 && lastBossLevel !== level) {
     lastBossLevel = level;
-    const boss = makeEnemy("boss", W / 2, -70);
+    const useFed = Math.floor(level / 3) % 2 === 0; // tier 3→whale, 6→fed, 9→whale, 12→fed
+    const btype = useFed ? "boss2" : "boss";
+    const boss = makeEnemy(btype, W / 2, -70);
     boss.homeX = W / 2; boss.homeY = 96; boss.enterDelay = 0;
     enemies.push(boss);
     bossActive = true;
-    // a couple of escorts
     for (const ex of [-70, 70]) {
-      const e = makeEnemy("gunner", W / 2 + ex, -60);
+      const e = makeEnemy(useFed ? "shielder" : "gunner", W / 2 + ex, -60);
       e.homeX = W / 2 + ex; e.homeY = 170; e.enterDelay = 0.4;
       enemies.push(e);
     }
-    bannerText("⚠ WHALE INCOMING ⚠", "#ff6bd0", 2.4);
+    bannerText(useFed ? "⚠ THE FED ARRIVES ⚠" : "⚠ WHALE INCOMING ⚠", useFed ? "#9fd0ff" : "#ff6bd0", 2.4);
     return;
   }
 
@@ -694,6 +706,42 @@ function bossFire(e, dt) {
     if (e.bossShots > 3) { e.bossShots = 0; e.bossPhase++; e.bossAtkCd = 1.5; }
   }
 }
+// THE FED — monetary-policy patterns (rate-hike columns, aimed bursts, rings)
+function bossFire2(e, dt) {
+  e.spin += dt * 1.3;
+  e.bossAtkCd = (e.bossAtkCd || 0) - dt;
+  if (e.bossAtkCd > 0) return;
+  const phase = e.bossPhase % 3;
+  if (phase === 0) {
+    // "RATE HIKE" — descending columns at player + both flanks
+    for (const cx of [player.x, e.x - 70, e.x + 70]) {
+      enemyBullets.push({ x: clamp(cx, 8, W - 8), y: e.y, vx: 0, vy: 205, r: 5, color: "#9fd0ff" });
+    }
+    e.bossAtkCd = 0.34;
+    e.bossShots = (e.bossShots || 0) + 1;
+    if (e.bossShots > 8) { e.bossShots = 0; e.bossPhase++; e.bossAtkCd = 1.4; }
+  } else if (phase === 1) {
+    // aimed twin bursts
+    const ba = Math.atan2(player.y - e.y, player.x - e.x);
+    for (const s of [-0.13, 0.13])
+      enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(ba + s) * 215, vy: Math.sin(ba + s) * 215, r: 5, color: "#c9e6ff" });
+    Sound.enemyShoot();
+    e.bossAtkCd = 0.4;
+    e.bossShots = (e.bossShots || 0) + 1;
+    if (e.bossShots > 6) { e.bossShots = 0; e.bossPhase++; e.bossAtkCd = 1.3; }
+  } else {
+    // expanding ring
+    const n = 10;
+    for (let k = 0; k < n; k++) {
+      const a = k / n * TAU + e.t;
+      enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 130, vy: Math.sin(a) * 130 + 55, r: 4.5, color: "#7fb0ff" });
+    }
+    Sound.enemyShoot();
+    e.bossAtkCd = 0.95;
+    e.bossShots = (e.bossShots || 0) + 1;
+    if (e.bossShots > 3) { e.bossShots = 0; e.bossPhase++; e.bossAtkCd = 1.5; }
+  }
+}
 function updateEnemies(dt) {
   formationTime += dt;
   const sway = Math.sin(formationTime * 0.9) * 26;
@@ -707,16 +755,16 @@ function updateEnemies(dt) {
         e.x += (e.homeX - e.x) * clamp(dt * 3.2, 0, 1);
         if (Math.abs(e.y - e.homeY) < 3 && Math.abs(e.x - e.homeX) < 3) e.entering = false;
       }
-    } else if (e.type === "boss") {
+    } else if (isBoss(e)) {
       // strafe horizontally, bob vertically, run attack patterns
-      e.strafe += dt * 0.7;
-      e.x = W / 2 + Math.sin(e.strafe) * 118;
+      e.strafe += dt * (e.type === "boss2" ? 0.55 : 0.7);
+      e.x = W / 2 + Math.sin(e.strafe) * 112;
       e.y = e.homeY + Math.sin(e.strafe * 1.7) * 10;
-      bossFire(e, dt);
+      (e.type === "boss2" ? bossFire2 : bossFire)(e, dt);
     } else {
       if (e.type === "shielder" && e.shield < e.shieldMax) {
         e.shieldRegen -= dt;
-        if (e.shieldRegen <= 0) { e.shield = e.shieldMax; } // full recharge after being left alone
+        if (e.shieldRegen <= 0) { e.shield++; e.shieldRegen = 4; } // regen one point at a time
       }
       let weave = 0;
       if (e.type === "weaver") weave = Math.sin(e.t * 2.4 + e.weavePh) * e.weaveAmp;
@@ -729,6 +777,8 @@ function updateEnemies(dt) {
         e.x += clamp(dx, -120, 120) * dt * 1.6; e.y += 195 * dt;
         if (e.y > H + 30) { enemies.splice(i, 1); continue; }
       }
+      // keep every enemy inside the band the ship can actually shoot (anti-softlock)
+      e.x = clamp(e.x, 16, W - 16);
       e.fireCd -= dt;
       if (e.fireCd <= 0) {
         e.fireCd = rand(1.4, 3.4) - level * 0.08;
@@ -885,6 +935,34 @@ function drawEnemy(e) {
     ctx.fillStyle = "#ffd24a";
     ctx.font = "bold 15px 'Trebuchet MS'"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText("$$$", 0, 14);
+  } else if (e.type === "boss2") {
+    // THE FED — steel hex fortress with a glowing % core and turret pods
+    ctx.shadowBlur = 24;
+    const bg = ctx.createLinearGradient(0, -42, 0, 42);
+    bg.addColorStop(0, "#dbe6f5"); bg.addColorStop(0.5, e.color); bg.addColorStop(1, "#2b3550");
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = k / 6 * TAU + Math.PI / 6;
+      const px = Math.cos(a) * 44, py = Math.sin(a) * 38;
+      k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#9fd0ff"; ctx.lineWidth = 3; ctx.stroke();
+    // turret pods
+    ctx.fillStyle = "#39456a";
+    for (const px of [-34, 34]) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px - 6, 20, 12, 14, 3) : ctx.rect(px - 6, 20, 12, 14); ctx.fill(); }
+    // glowing core
+    ctx.globalCompositeOperation = "lighter";
+    const gl = 0.6 + 0.4 * Math.sin(e.t * 6);
+    const cg = ctx.createRadialGradient(0, 0, 2, 0, 0, 22);
+    cg.addColorStop(0, "rgba(180,220,255," + gl.toFixed(2) + ")"); cg.addColorStop(1, "rgba(120,180,255,0)");
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, 0, 22, 0, TAU); ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "#0e1830";
+    ctx.font = "bold 24px 'Trebuchet MS'"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("%", 0, 1);
   }
   ctx.restore();
 }
@@ -982,7 +1060,7 @@ function detonateBomb() {
   enemyBullets.length = 0; // clear incoming fire
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
-    if (e.type === "boss") {
+    if (isBoss(e)) {
       e.hp -= Math.ceil(e.maxHp * 0.22);
       spawnExplosion(e.x, e.y, "#ffd24a", 24, 1.4);
       continue;
@@ -1137,13 +1215,13 @@ function handleCollisions() {
         if (e.hp <= 0) {
           addScore(e.points); levelKills++;
           floatText(e.x, e.y - 6, "+" + money(Math.round(e.points * scoreMult)), "#8affc4");
-          if (e.type === "boss") {
+          if (isBoss(e)) {
             spawnExplosion(e.x, e.y, e.color, 60, 2.4);
             spawnExplosion(e.x, e.y, "#ffd24a", 40, 1.8);
             Sound.bigExplode(); shake = 20; flash = 0.6; bossActive = false;
             spawnCoins(e.x, e.y, 14);
             spawnPowerup(e.x - 20, e.y); spawnPowerup(e.x + 20, e.y);
-            bannerText("WHALE LIQUIDATED! 🐋💰", "#ffd24a", 2.4);
+            bannerText(e.type === "boss2" ? "THE FED TOPPLED! 🏦💥" : "WHALE LIQUIDATED! 🐋💰", "#ffd24a", 2.4);
           } else if (e.type === "splitter") {
             spawnExplosion(e.x, e.y, e.color, 16, 1);
             Sound.explode(); shake = Math.min(shake + 4, 16);
@@ -1179,7 +1257,7 @@ function handleCollisions() {
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       if (dist2(player.x, player.y, e.x, e.y) < (12 + e.r) * (12 + e.r)) {
-        if (e.type !== "boss") { spawnExplosion(e.x, e.y, e.color, 20, 1.1); Sound.explode(); enemies.splice(i, 1); }
+        if (!isBoss(e)) { spawnExplosion(e.x, e.y, e.color, 20, 1.1); Sound.explode(); enemies.splice(i, 1); }
         damagePlayer(); break;
       }
     }
@@ -1255,18 +1333,20 @@ function drawHUD() {
 
   // boss health bar
   if (bossActive) {
-    const boss = enemies.find(e => e.type === "boss");
+    const boss = enemies.find(isBoss);
     if (boss) {
+      const fed = boss.type === "boss2";
       const bw = W - 40, bhp = clamp(boss.hp / boss.maxHp, 0, 1);
       ctx.save();
       roundRect(20, 58, bw, 9, 4); ctx.fillStyle = "rgba(20,10,30,0.6)"; ctx.fill();
       roundRect(20, 58, bw * bhp, 9, 4);
       const hg = ctx.createLinearGradient(20, 0, 20 + bw, 0);
-      hg.addColorStop(0, "#ff6bd0"); hg.addColorStop(1, "#c46bff");
+      if (fed) { hg.addColorStop(0, "#9fd0ff"); hg.addColorStop(1, "#6f86c8"); }
+      else { hg.addColorStop(0, "#ff6bd0"); hg.addColorStop(1, "#c46bff"); }
       ctx.fillStyle = hg; ctx.fill();
       ctx.restore();
-      ctx.textAlign = "center"; ctx.fillStyle = "#ffd0f2"; ctx.font = "bold 9px 'Trebuchet MS', sans-serif";
-      ctx.fillText("🐋 WHALE", W / 2, 60);
+      ctx.textAlign = "center"; ctx.fillStyle = fed ? "#dbeaff" : "#ffd0f2"; ctx.font = "bold 9px 'Trebuchet MS', sans-serif";
+      ctx.fillText(fed ? "🏦 THE FED" : "🐋 WHALE", W / 2, 60);
     }
   }
 
@@ -1387,11 +1467,23 @@ function update(dt) {
   if (player.weaponTime > 0) { player.weaponTime -= dt; if (player.weaponTime <= 0) { player.weapon = "blaster"; player.weaponTime = 0; } }
 
   handleCollisions();
-  bossActive = enemies.some(e => e.type === "boss");
+  bossActive = enemies.some(isBoss);
   checkLevelUp();
   const desiredSector = sectorForLevel(level);
   if (desiredSector !== sectorIdx) applySector(desiredSector, true);
   if (levelBanner > 0) levelBanner -= dt;
+
+  // wave watchdog: if a (non-boss) wave stops clearing for too long, flush the
+  // stragglers downward so the game can never soft-lock on an unkillable enemy
+  if (!bossActive && enemies.length > 0) {
+    if (enemies.length === lastEnemyCount) {
+      waveStaleTimer += dt;
+      if (waveStaleTimer > 14) {
+        for (const e of enemies) e.diving = true;
+        waveStaleTimer = 0;
+      }
+    } else { lastEnemyCount = enemies.length; waveStaleTimer = 0; }
+  } else { waveStaleTimer = 0; lastEnemyCount = enemies.length; }
 
   if (enemies.length === 0) {
     waveTimer -= dt;
