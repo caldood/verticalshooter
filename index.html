@@ -139,9 +139,9 @@
         <div class="subtitle">Galaxy Market Raider</div>
         <button class="play-btn" id="startBtn">▶ LAUNCH</button>
         <div class="hint">
-          ◀ ▶ &nbsp;Arrow keys / touch to move<br>
-          SPACE / tap <b>BUY</b> to fire &nbsp;(auto-fire on)<br>
-          Short the <b>bears</b> · grab <b>$ coins</b> &amp; <b>power-ups</b><br>
+          ◀ ▶ &nbsp;Move &nbsp;·&nbsp; SPACE / <b>BUY</b> to fire (auto-on)<br>
+          Short <b>bears, weavers &amp; bull-traps</b> · survive the <b>🐋 whale</b><br>
+          Grab <b>$ coins</b> · <b>🛰 drones</b> · <b>×2 bull runs</b> · <b>💥 bailouts</b><br>
           Send your portfolio <b>to the moon</b> 🚀
         </div>
         <div class="best" id="bestStart"></div>
@@ -348,7 +348,7 @@ let state = State.START;
 const player = {
   x: W / 2, y: H - 92, w: 42, h: 46,
   speed: 330, cooldown: 0, fireRate: 0.2,
-  lives: 3, invuln: 0, power: 1, thrust: 0
+  lives: 3, invuln: 0, power: 1, thrust: 0, drones: []
 };
 
 let bullets = [], enemyBullets = [], enemies = [], powerups = [], coins = [];
@@ -356,16 +356,21 @@ let score = 0, level = 1, best = 0;
 try { best = parseInt(localStorage.getItem("moonshot_best") || "0", 10) || 0; } catch (e) {}
 
 let waveTimer = 0, levelKills = 0, killsForLevel = 12, shake = 0;
+let scoreMult = 1, multTime = 0, flash = 0;
+
+function addScore(n) { score += Math.round(n * scoreMult); }
 const keys = { left: false, right: false, fire: false };
 
 // ---------- Reset / fire ----------
 function resetGame() {
   player.x = W / 2; player.y = H - 92;
   player.lives = 3; player.invuln = 0; player.power = 1;
-  player.cooldown = 0; player.fireRate = 0.2;
+  player.cooldown = 0; player.fireRate = 0.2; player.drones = [];
   bullets = []; enemyBullets = []; enemies = []; powerups = []; coins = []; particles.length = 0;
   score = 0; level = 1; levelKills = 0; killsForLevel = 12;
   waveTimer = 0.4; shake = 0;
+  scoreMult = 1; multTime = 0; flash = 0;
+  bossActive = false; lastBossLevel = -1; banner.time = 0;
 }
 function firePlayer() {
   Sound.shoot();
@@ -375,6 +380,8 @@ function firePlayer() {
   else if (player.power === 2) shots.push({ x: bx - 8, dx: 0 }, { x: bx + 8, dx: 0 });
   else shots.push({ x: bx, dx: 0 });
   for (const s of shots) bullets.push({ x: s.x, y: by, vx: s.dx, vy: -600, r: 4, life: 2 });
+  // drone allies fire straight up
+  for (const d of player.drones) bullets.push({ x: d.x, y: d.y - 8, vx: 0, vy: -560, r: 3.5, life: 2 });
 }
 
 // ---------- Player ship (redesigned, translucent, animated) ----------
@@ -482,53 +489,152 @@ function drawPlayer(t) {
   ctx.restore();
 }
 
+// ---------- Drone allies ----------
+function updateDrones(dt) {
+  for (const d of player.drones) {
+    d.ph += dt * 4;
+    const tx = player.x + d.side * 30, ty = player.y + 12 + Math.sin(d.ph) * 3;
+    d.x += (tx - d.x) * clamp(dt * 8, 0, 1);
+    d.y += (ty - d.y) * clamp(dt * 8, 0, 1);
+  }
+}
+function drawDrones(t) {
+  for (const d of player.drones) {
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    // engine glow
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "rgba(150,120,255,0.5)";
+    ctx.beginPath(); ctx.arc(0, 8, 3 + Math.sin(t * 30) * 1, 0, TAU); ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.shadowColor = "#b18bff"; ctx.shadowBlur = 10;
+    const g = ctx.createLinearGradient(0, -8, 0, 7);
+    g.addColorStop(0, "#ecdfff"); g.addColorStop(1, "#7a4fd0");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6, 6); ctx.lineTo(-6, 6); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(200,255,250,0.95)";
+    ctx.beginPath(); ctx.arc(0, -1, 2, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+}
+
 // ---------- Enemies (finance-themed bears/volatility) ----------
-// grunt=dip, diver=short, gunner=bear, tank=crash
+// grunt=dip, diver=short, gunner=bear, tank=crash, weaver=volatility,
+// splitter=bull trap, splitling=fragment, boss=whale
 function makeEnemy(type, x, y) {
   const base = { x, y, type, r: 16, hp: 1, t: rand(0, TAU), fireCd: rand(1.2, 3.2),
     homeX: x, homeY: y, vx: 0, vy: 0, points: 100, entering: true, enterDelay: 0 };
-  if (type === "grunt")  { base.hp = 1; base.r = 15; base.color = "#ff5b7e"; base.points = 100; }
-  if (type === "diver")  { base.hp = 1; base.r = 15; base.color = "#ff9f43"; base.points = 150; }
-  if (type === "gunner") { base.hp = 2; base.r = 17; base.color = "#ff6b3d"; base.points = 200; base.fireCd = rand(0.8, 1.8); }
-  if (type === "tank")   { base.hp = 6; base.r = 24; base.color = "#e0397a"; base.points = 500; base.fireCd = rand(1.5, 2.5); }
+  if (type === "grunt")    { base.hp = 1; base.r = 15; base.color = "#ff5b7e"; base.points = 100; }
+  if (type === "diver")    { base.hp = 1; base.r = 15; base.color = "#ff9f43"; base.points = 150; }
+  if (type === "gunner")   { base.hp = 2; base.r = 17; base.color = "#ff6b3d"; base.points = 200; base.fireCd = rand(0.8, 1.8); }
+  if (type === "tank")     { base.hp = 6; base.r = 24; base.color = "#e0397a"; base.points = 500; base.fireCd = rand(1.5, 2.5); }
+  if (type === "weaver")   { base.hp = 2; base.r = 15; base.color = "#3dd7d0"; base.points = 220; base.fireCd = rand(1.0, 2.2); base.weaveAmp = rand(30, 60); base.weavePh = rand(0, TAU); }
+  if (type === "splitter") { base.hp = 2; base.r = 17; base.color = "#8be04a"; base.points = 180; base.fireCd = rand(1.4, 2.8); }
+  if (type === "splitling"){ base.hp = 1; base.r = 9;  base.color = "#b6ff6a"; base.points = 60;  base.fireCd = rand(1.2, 2.6); }
+  if (type === "boss")     { base.hp = 60 + level * 14; base.r = 46; base.color = "#c46bff"; base.points = 3000; base.fireCd = 1.2; base.bossPhase = 0; base.spin = 0; base.strafe = rand(0, TAU); }
+  base.maxHp = base.hp;
   return base;
 }
-let formationTime = 0;
+let formationTime = 0, lastBossLevel = -1, bossActive = false;
 function spawnWave() {
+  // Boss encounter every 3rd tier
+  if (level >= 3 && level % 3 === 0 && lastBossLevel !== level) {
+    lastBossLevel = level;
+    const boss = makeEnemy("boss", W / 2, -70);
+    boss.homeX = W / 2; boss.homeY = 96; boss.enterDelay = 0;
+    enemies.push(boss);
+    bossActive = true;
+    // a couple of escorts
+    for (const ex of [-70, 70]) {
+      const e = makeEnemy("gunner", W / 2 + ex, -60);
+      e.homeX = W / 2 + ex; e.homeY = 170; e.enterDelay = 0.4;
+      enemies.push(e);
+    }
+    bannerText("⚠ WHALE INCOMING ⚠", "#ff6bd0", 2.4);
+    return;
+  }
+
   const cols = clamp(4 + Math.floor(level / 2), 4, 8);
   const startX = (W - (cols - 1) * 46) / 2;
   const rowTypes = ["grunt"];
-  if (level >= 2) rowTypes.push(Math.random() < 0.5 ? "gunner" : "grunt");
-  if (level >= 3) rowTypes.push("gunner");
+  if (level >= 2) rowTypes.push(Math.random() < 0.5 ? "gunner" : "weaver");
+  if (level >= 3) rowTypes.push(Math.random() < 0.5 ? "gunner" : "splitter");
   if (level >= 4 && Math.random() < 0.6) rowTypes.push("diver");
+  if (level >= 5 && Math.random() < 0.5) rowTypes.push("weaver");
   const rows = rowTypes.length;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       let type = rowTypes[r];
-      if (type === "grunt" && Math.random() < 0.12 + level * 0.02) type = "diver";
+      if (type === "grunt" && Math.random() < 0.1 + level * 0.02) type = "diver";
+      if (type === "grunt" && Math.random() < 0.08) type = "splitter";
       const hx = startX + c * 46, hy = 78 + r * 44;
       const e = makeEnemy(type, hx, -40 - c * 12 - r * 30);
       e.homeX = hx; e.homeY = hy; e.enterDelay = c * 0.05 + r * 0.12;
       enemies.push(e);
     }
   }
-  if (level >= 3 && Math.random() < 0.5) {
+  if (level >= 4 && Math.random() < 0.4) {
     const e = makeEnemy("tank", W / 2, -60);
-    e.homeX = W / 2; e.homeY = 62; e.enterDelay = 0;
+    e.homeX = W / 2; e.homeY = 56; e.enterDelay = 0;
     enemies.push(e);
   }
 }
+function aimedBullet(e, sp, r) {
+  const dx = player.x - e.x, dy = player.y - e.y, d = Math.hypot(dx, dy) || 1;
+  enemyBullets.push({ x: e.x, y: e.y + e.r, vx: dx / d * sp, vy: dy / d * sp, r: r || 4.5, color: e.color });
+}
 function enemyFire(e) {
-  if (e.type === "grunt" || e.type === "diver") {
+  if (e.type === "grunt" || e.type === "diver" || e.type === "splitter" || e.type === "splitling") {
     if (Math.random() < 0.6) { enemyBullets.push({ x: e.x, y: e.y + e.r, vx: 0, vy: 195, r: 4, color: e.color }); Sound.enemyShoot(); }
   } else if (e.type === "gunner") {
-    const dx = player.x - e.x, dy = player.y - e.y, d = Math.hypot(dx, dy) || 1, sp = 235;
-    enemyBullets.push({ x: e.x, y: e.y + e.r, vx: dx / d * sp, vy: dy / d * sp, r: 4.5, color: e.color });
+    aimedBullet(e, 235); Sound.enemyShoot();
+  } else if (e.type === "weaver") {
+    // twin angled shots
+    enemyBullets.push({ x: e.x, y: e.y + e.r, vx: -70, vy: 200, r: 4, color: e.color });
+    enemyBullets.push({ x: e.x, y: e.y + e.r, vx: 70, vy: 200, r: 4, color: e.color });
     Sound.enemyShoot();
   } else if (e.type === "tank") {
     for (let a = -0.35; a <= 0.35; a += 0.35)
       enemyBullets.push({ x: e.x, y: e.y + e.r, vx: Math.sin(a) * 205, vy: Math.cos(a) * 205, r: 5, color: e.color });
     Sound.enemyShoot();
+  }
+}
+// Boss attack patterns, cycled by phase
+function bossFire(e, dt) {
+  e.spin += dt * 2.2;
+  e.bossAtkCd = (e.bossAtkCd || 0) - dt;
+  if (e.bossAtkCd > 0) return;
+  const phase = e.bossPhase % 3;
+  if (phase === 0) {
+    // rotating spiral
+    for (let k = 0; k < 4; k++) {
+      const a = e.spin + k * (TAU / 4);
+      enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 150, vy: Math.abs(Math.sin(a)) * 90 + 120, r: 5, color: "#ff9be8" });
+    }
+    e.bossAtkCd = 0.16;
+    e.bossShots = (e.bossShots || 0) + 1;
+    if (e.bossShots > 16) { e.bossShots = 0; e.bossPhase++; e.bossAtkCd = 1.0; }
+  } else if (phase === 1) {
+    // aimed 5-shot burst
+    const dx = player.x - e.x, dy = player.y - e.y, d = Math.hypot(dx, dy) || 1;
+    const ba = Math.atan2(dy, dx);
+    for (let s = -2; s <= 2; s++) {
+      const a = ba + s * 0.16;
+      enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 240, vy: Math.sin(a) * 240, r: 5, color: "#ffd0f2" });
+    }
+    Sound.enemyShoot();
+    e.bossAtkCd = 0.5;
+    e.bossShots = (e.bossShots || 0) + 1;
+    if (e.bossShots > 4) { e.bossShots = 0; e.bossPhase++; e.bossAtkCd = 0.9; }
+  } else {
+    // wide wall sweep
+    for (let x = -0.9; x <= 0.9; x += 0.3)
+      enemyBullets.push({ x: e.x, y: e.y, vx: Math.sin(x) * 120, vy: 200, r: 5, color: "#c46bff" });
+    Sound.enemyShoot();
+    e.bossAtkCd = 0.6;
+    e.bossShots = (e.bossShots || 0) + 1;
+    if (e.bossShots > 5) { e.bossShots = 0; e.bossPhase++; e.bossAtkCd = 1.1; }
   }
 }
 function updateEnemies(dt) {
@@ -544,8 +650,16 @@ function updateEnemies(dt) {
         e.x += (e.homeX - e.x) * clamp(dt * 3.2, 0, 1);
         if (Math.abs(e.y - e.homeY) < 3 && Math.abs(e.x - e.homeX) < 3) e.entering = false;
       }
+    } else if (e.type === "boss") {
+      // strafe horizontally, bob vertically, run attack patterns
+      e.strafe += dt * 0.7;
+      e.x = W / 2 + Math.sin(e.strafe) * 118;
+      e.y = e.homeY + Math.sin(e.strafe * 1.7) * 10;
+      bossFire(e, dt);
     } else {
-      const targetX = e.homeX + sway, targetY = e.homeY + bob;
+      let weave = 0;
+      if (e.type === "weaver") weave = Math.sin(e.t * 2.4 + e.weavePh) * e.weaveAmp;
+      const targetX = e.homeX + sway + weave, targetY = e.homeY + bob;
       e.x += (targetX - e.x) * clamp(dt * 4, 0, 1);
       e.y += (targetY - e.y) * clamp(dt * 4, 0, 1);
       if (e.type === "diver" && !e.diving && Math.random() < 0.004) e.diving = true;
@@ -619,6 +733,64 @@ function drawEnemy(e) {
     // hp pips
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     for (let h = 0; h < e.hp; h++) ctx.fillRect(-12 + h * 4.2, -30, 3, 3);
+  } else if (e.type === "weaver") {
+    // volatility orb — pulsing core with orbiting ring
+    const pr = 11 + Math.sin(e.t * 6) * 2;
+    const g = ctx.createRadialGradient(0, 0, 1, 0, 0, pr);
+    g.addColorStop(0, "#d4fffb"); g.addColorStop(0.55, e.color); g.addColorStop(1, "#0c6b66");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, pr, 0, TAU); ctx.fill();
+    ctx.strokeStyle = "rgba(190,255,250,0.8)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, 0, 17, 7, e.t * 2, 0, TAU); ctx.stroke();
+    ctx.fillStyle = "rgba(4,50,48,0.9)";
+    ctx.font = "bold 11px 'Trebuchet MS'"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("〜", 0, 1);
+  } else if (e.type === "splitter") {
+    // bull-trap blob (green, splits)
+    ctx.fillStyle = e.color;
+    ctx.beginPath();
+    for (let k = 0; k < 8; k++) {
+      const a = k / 8 * TAU;
+      const rr = 16 + Math.sin(k * 2 + e.t * 4) * 2;
+      const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+      k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(15,60,5,0.9)";
+    ctx.font = "bold 12px 'Trebuchet MS'"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("▲", 0, 1);
+  } else if (e.type === "splitling") {
+    ctx.fillStyle = e.color;
+    ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.fill();
+    ctx.fillStyle = "rgba(15,60,5,0.9)";
+    ctx.beginPath(); ctx.arc(-3, -1, 1.6, 0, TAU); ctx.arc(3, -1, 1.6, 0, TAU); ctx.fill();
+  } else if (e.type === "boss") {
+    // WHALE — big menacing hull with gold trim + glowing eyes
+    ctx.shadowBlur = 26;
+    const bg = ctx.createLinearGradient(0, -40, 0, 40);
+    bg.addColorStop(0, "#e6c0ff"); bg.addColorStop(0.5, e.color); bg.addColorStop(1, "#5a1f8f");
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.ellipse(0, 0, 46, 34, 0, 0, TAU); ctx.fill();
+    // gold trim
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#ffd24a"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, 0, 46, 34, 0, 0, TAU); ctx.stroke();
+    // dorsal pods
+    ctx.fillStyle = "#7a2fb8";
+    for (const px of [-30, 0, 30]) { ctx.beginPath(); ctx.ellipse(px, -30, 8, 10, 0, 0, TAU); ctx.fill(); }
+    // glowing eyes
+    ctx.globalCompositeOperation = "lighter";
+    const eye = 0.6 + 0.4 * Math.sin(e.t * 8);
+    ctx.fillStyle = "rgba(255,80,150," + eye.toFixed(2) + ")";
+    ctx.shadowColor = "#ff5090"; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(-14, -4, 5, 0, TAU); ctx.arc(14, -4, 5, 0, TAU); ctx.fill();
+    ctx.globalCompositeOperation = "source-over"; ctx.shadowBlur = 0;
+    // mouth / $ maw
+    ctx.fillStyle = "#2a0a44";
+    ctx.beginPath(); ctx.ellipse(0, 14, 18, 8, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#ffd24a";
+    ctx.font = "bold 15px 'Trebuchet MS'"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("$$$", 0, 14);
   }
   ctx.restore();
 }
@@ -640,9 +812,9 @@ function updateCoins(dt) {
     c.x += c.vx * dt; c.y += c.vy * dt; c.t += dt * 6;
     if (c.y > H + 20) { coins.splice(i, 1); continue; }
     if (dist2(player.x, player.y, c.x, c.y) < (14 + c.r) * (14 + c.r)) {
-      score += c.value; Sound.coin();
+      addScore(c.value); Sound.coin();
       spawnSpark(c.x, c.y, "#ffd24a");
-      floatText(c.x, c.y, "+" + money(c.value), "#ffd24a");
+      floatText(c.x, c.y, "+" + money(Math.round(c.value * scoreMult)), "#ffd24a");
       coins.splice(i, 1);
     }
   }
@@ -668,19 +840,22 @@ function drawCoins() {
 }
 
 // ---------- Power-ups ----------
+const POWER_TABLE = [
+  ["power", 0.20], ["rapid", 0.15], ["shield", 0.13], ["multi", 0.14],
+  ["drone", 0.12], ["bomb", 0.12], ["heart", 0.14]
+];
 function spawnPowerup(x, y) {
-  const roll = Math.random();
-  let kind;
-  if (roll < 0.42) kind = "power";
-  else if (roll < 0.66) kind = "rapid";
-  else if (roll < 0.85) kind = "shield";
-  else kind = "heart";
+  let roll = Math.random(), acc = 0, kind = "power";
+  for (const [k, w] of POWER_TABLE) { acc += w; if (roll < acc) { kind = k; break; } }
   powerups.push({ x, y, vy: 68, r: 14, kind, t: rand(0, TAU) });
 }
 function powerupStyle(kind) {
   if (kind === "rapid")  return { col: "#5bff9f", label: "⚡" };
   if (kind === "shield") return { col: "#5bc8ff", label: "🛡" };
   if (kind === "heart")  return { col: "#ff5b8b", label: "♥" };
+  if (kind === "multi")  return { col: "#ffb14a", label: "×2" };
+  if (kind === "drone")  return { col: "#b18bff", label: "🛰" };
+  if (kind === "bomb")   return { col: "#ff5b5b", label: "💥" };
   return { col: "#ffd24a", label: "📈" };
 }
 function drawPowerup(p) {
@@ -700,6 +875,29 @@ function drawPowerup(p) {
   ctx.fillText(st.label, 0, 1);
   ctx.restore();
 }
+function addDrone() {
+  if (player.drones.length >= 2) { multTime = Math.max(multTime, 0); return false; }
+  const side = player.drones.length === 0 ? -1 : 1;
+  player.drones.push({ side, ph: rand(0, TAU), x: player.x, y: player.y });
+  return true;
+}
+function detonateBomb() {
+  flash = 0.7; shake = 18; Sound.bigExplode();
+  enemyBullets.length = 0; // clear incoming fire
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    if (e.type === "boss") {
+      e.hp -= Math.ceil(e.maxHp * 0.22);
+      spawnExplosion(e.x, e.y, "#ffd24a", 24, 1.4);
+      continue;
+    }
+    addScore(Math.round(e.points * 0.5));
+    spawnExplosion(e.x, e.y, e.color, 16, 1.1);
+    spawnCoins(e.x, e.y, 1);
+    levelKills++;
+    enemies.splice(i, 1);
+  }
+}
 function applyPowerup(p) {
   Sound.power();
   const st = powerupStyle(p.kind);
@@ -708,6 +906,24 @@ function applyPowerup(p) {
   else if (p.kind === "rapid")  { player.fireRate = Math.max(0.09, player.fireRate - 0.05); floatText(p.x, p.y, "HIGH-FREQ", "#5bff9f"); }
   else if (p.kind === "shield") { player.invuln = Math.max(player.invuln, 4); floatText(p.x, p.y, "HEDGE", "#5bc8ff"); }
   else if (p.kind === "heart")  { player.lives = clamp(player.lives + 1, 0, 5); floatText(p.x, p.y, "+1 LIFE", "#ff5b8b"); }
+  else if (p.kind === "multi")  { scoreMult = 2; multTime = 12; bannerText("BULL RUN ×2 📈", "#ffb14a", 1.6); }
+  else if (p.kind === "drone")  { addDrone() ? floatText(p.x, p.y, "ALLY DRONE", "#b18bff") : floatText(p.x, p.y, "+" + money(300), "#b18bff"); if (player.drones.length >= 2) addScore(300); }
+  else if (p.kind === "bomb")   { bannerText("BAILOUT! 💥", "#ff5b5b", 1.4); detonateBomb(); }
+}
+
+// ---------- Banner (centered callouts) ----------
+let banner = { text: "", color: "#fff", time: 0, max: 0 };
+function bannerText(text, color, dur) { banner = { text, color, time: dur, max: dur }; }
+function drawBanner() {
+  if (banner.time <= 0) return;
+  ctx.save();
+  const k = banner.time / banner.max;
+  ctx.globalAlpha = clamp(banner.time, 0, 1) * clamp(k * 3, 0, 1);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = banner.color; ctx.shadowColor = banner.color; ctx.shadowBlur = 22;
+  ctx.font = "bold 26px 'Trebuchet MS', sans-serif";
+  ctx.fillText(banner.text, W / 2, H / 2 - 70);
+  ctx.restore();
 }
 
 // ---------- Floating text ----------
@@ -775,16 +991,33 @@ function handleCollisions() {
         bullets.splice(j, 1); e.hp -= 1;
         spawnSpark(b.x, b.y, "#c8ffdf"); Sound.hit();
         if (e.hp <= 0) {
-          score += e.points; levelKills++;
-          const big = e.type === "tank";
-          spawnExplosion(e.x, e.y, e.color, big ? 36 : 18, big ? 1.7 : 1);
-          big ? Sound.bigExplode() : Sound.explode();
-          shake = Math.min(shake + (big ? 11 : 4), 16);
-          floatText(e.x, e.y - 6, "+" + money(e.points), "#8affc4");
-          // coin drops
-          spawnCoins(e.x, e.y, big ? randInt(4, 6) : (e.type === "gunner" ? randInt(1, 3) : (Math.random() < 0.6 ? 1 : 0)));
-          const dropChance = e.type === "tank" ? 1 : e.type === "gunner" ? 0.22 : 0.1;
-          if (Math.random() < dropChance) spawnPowerup(e.x, e.y);
+          addScore(e.points); levelKills++;
+          floatText(e.x, e.y - 6, "+" + money(Math.round(e.points * scoreMult)), "#8affc4");
+          if (e.type === "boss") {
+            spawnExplosion(e.x, e.y, e.color, 60, 2.4);
+            spawnExplosion(e.x, e.y, "#ffd24a", 40, 1.8);
+            Sound.bigExplode(); shake = 20; flash = 0.6; bossActive = false;
+            spawnCoins(e.x, e.y, 14);
+            spawnPowerup(e.x - 20, e.y); spawnPowerup(e.x + 20, e.y);
+            bannerText("WHALE LIQUIDATED! 🐋💰", "#ffd24a", 2.4);
+          } else if (e.type === "splitter") {
+            spawnExplosion(e.x, e.y, e.color, 16, 1);
+            Sound.explode(); shake = Math.min(shake + 4, 16);
+            for (const off of [-14, 14]) {
+              const s = makeEnemy("splitling", e.x + off, e.y);
+              s.entering = false; s.homeX = clamp(e.x + off * 2, 24, W - 24); s.homeY = e.y;
+              s.vx = off * 3; enemies.push(s);
+            }
+            spawnCoins(e.x, e.y, 1);
+          } else {
+            const big = e.type === "tank";
+            spawnExplosion(e.x, e.y, e.color, big ? 36 : 18, big ? 1.7 : 1);
+            big ? Sound.bigExplode() : Sound.explode();
+            shake = Math.min(shake + (big ? 11 : 4), 16);
+            spawnCoins(e.x, e.y, big ? randInt(4, 6) : (e.type === "gunner" || e.type === "weaver" ? randInt(1, 3) : (Math.random() < 0.6 ? 1 : 0)));
+            const dropChance = e.type === "tank" ? 1 : (e.type === "gunner" || e.type === "weaver") ? 0.22 : 0.1;
+            if (Math.random() < dropChance) spawnPowerup(e.x, e.y);
+          }
           enemies.splice(i, 1);
         }
         break;
@@ -801,8 +1034,8 @@ function handleCollisions() {
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       if (dist2(player.x, player.y, e.x, e.y) < (12 + e.r) * (12 + e.r)) {
-        spawnExplosion(e.x, e.y, e.color, 20, 1.1); Sound.explode();
-        enemies.splice(i, 1); damagePlayer(); break;
+        if (e.type !== "boss") { spawnExplosion(e.x, e.y, e.color, 20, 1.1); Sound.explode(); enemies.splice(i, 1); }
+        damagePlayer(); break;
       }
     }
   }
@@ -864,10 +1097,30 @@ function drawHUD() {
   ctx.fillText("LIVES", W - 20, 14);
   for (let i = 0; i < player.lives; i++) drawHeart(W - 26 - i * 21, 36, 6.5, "#ff5b8b");
 
-  // power indicator
-  if (player.power > 1 || player.fireRate < 0.2) {
-    ctx.textAlign = "left"; ctx.fillStyle = "#8affc4"; ctx.font = "bold 10px 'Trebuchet MS', sans-serif";
-    ctx.fillText("LVG x" + player.power, 20, 46);
+  // active-buff readout
+  ctx.textAlign = "left"; ctx.font = "bold 10px 'Trebuchet MS', sans-serif";
+  let bx = 20;
+  function chip(txt, col) { ctx.fillStyle = col; ctx.fillText(txt, bx, 46); bx += ctx.measureText(txt).width + 10; }
+  if (player.power > 1) chip("LVG×" + player.power, "#ffd24a");
+  if (player.fireRate < 0.2) chip("HFT", "#5bff9f");
+  if (multTime > 0) chip("BULL×2 " + Math.ceil(multTime) + "s", "#ffb14a");
+  if (player.drones.length) chip("🛰×" + player.drones.length, "#b18bff");
+
+  // boss health bar
+  if (bossActive) {
+    const boss = enemies.find(e => e.type === "boss");
+    if (boss) {
+      const bw = W - 40, bhp = clamp(boss.hp / boss.maxHp, 0, 1);
+      ctx.save();
+      roundRect(20, 58, bw, 9, 4); ctx.fillStyle = "rgba(20,10,30,0.6)"; ctx.fill();
+      roundRect(20, 58, bw * bhp, 9, 4);
+      const hg = ctx.createLinearGradient(20, 0, 20 + bw, 0);
+      hg.addColorStop(0, "#ff6bd0"); hg.addColorStop(1, "#c46bff");
+      ctx.fillStyle = hg; ctx.fill();
+      ctx.restore();
+      ctx.textAlign = "center"; ctx.fillStyle = "#ffd0f2"; ctx.font = "bold 9px 'Trebuchet MS', sans-serif";
+      ctx.fillText("🐋 WHALE", W / 2, 60);
+    }
   }
 
   // shield ring
@@ -932,9 +1185,21 @@ function frame(now) {
   drawBullets();
   drawParticles();
   drawFloats();
-  if (state !== State.OVER) drawPlayer(now / 1000);
+  if (state !== State.OVER) { drawDrones(now / 1000); drawPlayer(now / 1000); }
 
-  if (state === State.PLAY) { drawHUD(); if (levelBanner > 0) drawLevelBanner(); }
+  if (state === State.PLAY) {
+    drawHUD();
+    if (levelBanner > 0) drawLevelBanner();
+    drawBanner();
+  }
+
+  // screen flash (bomb / boss death)
+  if (flash > 0) {
+    flash = Math.max(0, flash - dt * 1.6);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "rgba(255,255,255," + (flash * 0.6).toFixed(3) + ")";
+    ctx.fillRect(0, 0, W, H);
+  }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   requestAnimationFrame(frame);
@@ -949,8 +1214,12 @@ function update(dt) {
   player.cooldown -= dt;
   if (player.cooldown <= 0) { firePlayer(); player.cooldown = player.fireRate; }
 
+  if (multTime > 0) { multTime -= dt; if (multTime <= 0) { scoreMult = 1; multTime = 0; } }
+  if (banner.time > 0) banner.time -= dt;
+
   updateBullets(dt);
   updateEnemies(dt);
+  updateDrones(dt);
   updateParticles(dt);
   updateFloats(dt);
   updateCoins(dt);
@@ -961,6 +1230,7 @@ function update(dt) {
   }
 
   handleCollisions();
+  bossActive = enemies.some(e => e.type === "boss");
   checkLevelUp();
   if (levelBanner > 0) levelBanner -= dt;
 
